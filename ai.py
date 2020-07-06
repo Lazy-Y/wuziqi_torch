@@ -86,7 +86,7 @@ def expand_board(action, single_board_np):
 class PolicyNetwork(nn.Module):
     def __init__(self):
         super(PolicyNetwork, self).__init__()
-        self.conv1_num_channels = 16
+        self.conv1_num_channels = 8
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels=2,
                       out_channels=self.conv1_num_channels,
@@ -95,7 +95,7 @@ class PolicyNetwork(nn.Module):
                       padding=1),
             nn.LeakyReLU(),
         )
-        self.conv2_num_channels = 32
+        self.conv2_num_channels = 16
         self.conv2 = nn.Sequential(
             nn.Conv2d(in_channels=self.conv1_num_channels,
                       out_channels=self.conv2_num_channels,
@@ -104,6 +104,9 @@ class PolicyNetwork(nn.Module):
                       padding=1),
             nn.LeakyReLU(),
         )
+        self.kernel3 = torch.rand(
+            (self.conv2_num_channels), requires_grad=True)
+        self.bias3 = torch.tensor(0.1, requires_grad=True)
         self.out = nn.Softmax(1)
         self.criterion = nn.CrossEntropyLoss()
         self.optimizer = optim.Adam(self.parameters())
@@ -132,8 +135,11 @@ class PolicyNetwork(nn.Module):
             [self_board_tensor, oppo_board_tensor], axis=1)
         x = self.conv1(x)
         x = self.conv2(x)
-        x = torch.sum(x, dim=1)
-        x = torch.where(board_tensor == 0, x, -board_infs)
+        x = x.view((-1, self.conv2_num_channels, BOARD_SIZE ** 2))
+        x = torch.transpose(x, 1, 2)
+        x = torch.sum(x * self.kernel3, axis=-1) + self.bias3
+        x = torch.where(board_tensor.view(-1, BOARD_SIZE ** 2) == 0, x, -
+                        board_infs.view(-1, BOARD_SIZE ** 2))
         x = torch.reshape(x, (-1, BOARD_SIZE ** 2))
         x = self.out(x)
         return x
@@ -151,6 +157,7 @@ class PolicyNetwork(nn.Module):
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
+        return loss
 
 
 class WuziGo:
@@ -158,10 +165,10 @@ class WuziGo:
     def __init__(self):
         self.policy_network = PolicyNetwork()
         self.reset()
-        self.PATH = 'weights/w4.pt'
+        self.PATH = 'weights/w5.pt'
 
     def save(self, epoch):
-        torch.save(self.policy_network.state_dict(), f'weights/w_5{epoch}.pt')
+        torch.save(self.policy_network.state_dict(), f'weights/w_{epoch}.pt')
 
     def load(self):
         try:
@@ -194,9 +201,12 @@ class WuziGo:
         """
         if reward == 0:
             return
+        loss_array = []
         for action, single_board_np in self.observations[::-2]:
-            self.policy_network.train(action, single_board_np)
+            loss = self.policy_network.train(action, single_board_np)
+            loss_array.append(loss.detach().numpy())
         self.reset()
+        return np.mean(loss_array)
 
 
 def test_input():
@@ -240,10 +250,10 @@ def test_train():
     print(prev)
     print(curr)
     print(curr - prev)
-    board_np[2, 2] = 0
-    board_np[1, 1] = -1
-    new = ai(np.expand_dims(board_np, axis=0))
-    print(new.detach().numpy())
+    # board_np[2, 2] = 0
+    # board_np[1, 1] = -1
+    # new = ai(np.expand_dims(board_np, axis=0))
+    # print(new.detach().numpy())
 
 
 def test_net():
@@ -287,7 +297,7 @@ def test_ai():
 
 if __name__ == "__main__":
     # test_input()
-    # test_train()
+    test_train()
     # test_util()
     # test_net()
-    test_ai()
+    # test_ai()

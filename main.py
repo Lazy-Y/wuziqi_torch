@@ -11,9 +11,10 @@ train = True
 env = GomokuEnv(player_color=player_color,
                 opponent='beginner', board_size=BOARD_SIZE)
 ai = WuziGo()
-ai.load()
+# ai.load()
 for epoch in range(10):
     total = 100
+    loss_array = []
     win, draw, lose = 0, 0, 0
     for step in range(total):
         env.reset()
@@ -33,7 +34,8 @@ for epoch in range(10):
         if debug:
             env.render()
         if train:
-            ai.reward(reward)
+            loss = ai.reward(reward)
+            loss_array.append(loss)
         if reward == 1:
             win += 1
         elif reward == -1:
@@ -42,5 +44,6 @@ for epoch in range(10):
             draw += 1
         if debug:
             print('win:', win, 'drar:', draw, 'lose:', lose)
-    print('epoch:', epoch, 'win:', win, 'drar:', draw, 'lose:', lose)
+    print('epoch:', epoch, 'mean loss', np.mean(
+        loss_array), 'win:', win, 'drar:', draw, 'lose:', lose)
     ai.save(epoch)
