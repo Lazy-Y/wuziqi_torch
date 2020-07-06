@@ -338,10 +338,17 @@ def make_beginner_policy(np_random):
 
 
 def make_medium_policy():
-    ai = AI('white')
-
     def medium_policy(curr_state, prev_state, prev_action):
-        return ai.play(prev_state)
+        b = curr_state.board
+        print('curr state', curr_state)
+        while True:
+            try:
+                go = input('please enter your go:')
+                action = b.coord_to_action(*[int(i) for i in go.split(',')])
+                break
+            except Exception as e:
+                print('unknown', e)
+        return action
     return medium_policy
 
 

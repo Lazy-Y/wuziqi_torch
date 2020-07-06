@@ -5,10 +5,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torchsnooper
+from torchsummary import summary
+
 torchsnooper.register_snoop()
 snoop.install(enabled=False)
 
-BOARD_SIZE = 5
+BOARD_SIZE = 11
+ACTIONS = list(range(BOARD_SIZE ** 2))
 
 board_ones = torch.ones((BOARD_SIZE, BOARD_SIZE))
 board_zeros = torch.zeros((BOARD_SIZE, BOARD_SIZE))
@@ -80,10 +83,10 @@ def expand_board(action, single_board_np):
     return torch.tensor(action_array), torch.stack(board_tensor_array)
 
 
-class AI(nn.Module):
+class PolicyNetwork(nn.Module):
     def __init__(self):
-        super(AI, self).__init__()
-        self.conv1_num_channels = 3
+        super(PolicyNetwork, self).__init__()
+        self.conv1_num_channels = 16
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels=2,
                       out_channels=self.conv1_num_channels,
@@ -91,7 +94,6 @@ class AI(nn.Module):
                       stride=1,
                       padding=1),
             nn.LeakyReLU(),
-            nn.BatchNorm2d(self.conv1_num_channels)
         )
         self.conv2_num_channels = 32
         self.conv2 = nn.Sequential(
@@ -104,16 +106,17 @@ class AI(nn.Module):
         )
         self.out = nn.Softmax(1)
         self.criterion = nn.CrossEntropyLoss()
+        self.optimizer = optim.Adam(self.parameters())
         self.reset()
 
     def reset(self):
-        self.optimizer = optim.Adam(self.parameters())
+        pass
 
     @snoop()
     def forward(self, board):
         """
         Args:
-            board ([ndarray / tensor shape (-1, BS, BS)])
+            board ([ndarray / tensor shape (-1, BS, BS)]) each element can be -1, 0, 1
         Returns:
             tensor shape (-1, BS * BS)
         """
@@ -124,7 +127,7 @@ class AI(nn.Module):
         self_board_tensor = torch.where(
             board_tensor == 1, board_ones, board_zeros)
         oppo_board_tensor = torch.where(
-            board_tensor == 2, board_ones, board_zeros)
+            board_tensor == -1, board_ones, board_zeros)
         x = torch.stack(
             [self_board_tensor, oppo_board_tensor], axis=1)
         x = self.conv1(x)
@@ -150,11 +153,57 @@ class AI(nn.Module):
         self.optimizer.step()
 
 
+class WuziGo:
+
+    def __init__(self):
+        self.policy_network = PolicyNetwork()
+        self.reset()
+        self.PATH = 'weights/w4.pt'
+
+    def save(self, epoch):
+        torch.save(self.policy_network.state_dict(), f'weights/w_5{epoch}.pt')
+
+    def load(self):
+        try:
+            self.policy_network.load_state_dict(torch.load(self.PATH))
+        except FileNotFoundError:
+            print('unable to load model')
+
+    def reset(self):
+        self.policy_network.reset()
+        self.observations = []  # stores pairs (action, single_board_np)
+
+    def play(self, single_board_np):
+        if len(self.observations) % 2:
+            single_board_np = -single_board_np
+        board = np.reshape(single_board_np, (1, BOARD_SIZE, BOARD_SIZE))
+        probs = self.policy_network(board)
+        action = np.random.choice(ACTIONS, p=probs.detach().numpy()[0])
+        self.observations.append((action, single_board_np))
+        return action
+
+    def observe(self, action, single_board_np):
+        if len(self.observations) % 2:
+            single_board_np = -single_board_np
+        self.observations.append((action, single_board_np))
+
+    def reward(self, reward):
+        """
+        Args:
+            reward (int): -1, 0, 1
+        """
+        if reward == 0:
+            return
+        for action, single_board_np in self.observations[::-2]:
+            self.policy_network.train(action, single_board_np)
+        self.reset()
+
+
 def test_input():
-    board_np = np.arange(BOARD_SIZE ** 2) % 3
+    board_np = (np.arange(BOARD_SIZE ** 2) % 3) - 1
     board_np = np.reshape(board_np, (1, BOARD_SIZE, BOARD_SIZE))
     print(board_np)
-    ai = AI()
+    ai = PolicyNetwork()
     out = ai(board_np)
     single_board_np = np.squeeze(board_np)
     ai.train(0, single_board_np)
@@ -178,22 +227,67 @@ def test_util():
 
 def test_train():
     board_np = np.zeros((BOARD_SIZE, BOARD_SIZE))
-    board_np[2, 2] = 2
+    board_np[2, 2] = -1
     print(board_np)
     action = coord_to_action(1, 1)
-    ai = AI()
+    ai = PolicyNetwork()
     prev = ai(np.expand_dims(board_np, axis=0))
     prev = torch.reshape(prev, (1, BOARD_SIZE, BOARD_SIZE))
-    for _ in range(200):
+    for _ in range(100):
         ai.train(action, board_np)
     curr = ai(np.expand_dims(board_np, axis=0))
     curr = torch.reshape(curr, (1, BOARD_SIZE, BOARD_SIZE))
     print(prev)
     print(curr)
     print(curr - prev)
+    board_np[2, 2] = 0
+    board_np[1, 1] = -1
+    new = ai(np.expand_dims(board_np, axis=0))
+    print(new.detach().numpy())
+
+
+def test_net():
+    net = PolicyNetwork()
+    summary(net, (BOARD_SIZE, BOARD_SIZE))
+
+
+def test_ai():
+    ai = WuziGo()
+    board = np.zeros((BOARD_SIZE, BOARD_SIZE))
+    for i in range(2):
+        g = input("Go: ")
+        coord = [int(n) for n in g.split(',')]
+        action = coord_to_action(*coord)
+        ai.observe(action, board)
+        board = torch.tensor(board)
+        board[coord[0], coord[1]] = 1
+        print(board)
+        if i >= 1:
+            break
+        action = ai.play(board)
+        board = torch.tensor(board)
+        print('action', action)
+        coord = action_to_coord(action)
+        print('coord', coord)
+        board[coord[0], coord[1]] = -1
+        print(board)
+
+    # coords = [(2, 2), (1, 1), (1, 2), (0, 2), (2, 0), (2, 1)]
+    # for i, coord in enumerate(coords):
+    #     action = coord_to_action(*coord)
+    #     ai.observe(action, board)
+    #     board = np.array(board)
+    #     board[coord] = (-1) ** i
+    # for act, board in ai.observations:
+    #     print(action_to_coord(act))
+    #     print(board, "\n")
+    print(ai.observations)
+    ai.reward(1)
 
 
 if __name__ == "__main__":
     # test_input()
-    test_train()
+    # test_train()
     # test_util()
+    # test_net()
+    test_ai()
