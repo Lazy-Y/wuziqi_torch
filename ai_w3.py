@@ -118,19 +118,19 @@ class PolicyNetwork(nn.Module):
             nn.LeakyReLU(),
         )
 
-        self.conv3_4_num_channels = 8
-        self.conv3_4 = nn.Sequential(
+        self.conv5_1_num_channels = 8
+        self.conv5_1 = nn.Sequential(
             nn.Conv2d(in_channels=2,
-                      out_channels=self.conv3_4_num_channels,
+                      out_channels=self.conv5_1_num_channels,
                       kernel_size=5,
                       stride=1,
                       padding=2),
             nn.LeakyReLU(),
         )
-        self.conv3_5_num_channels = 8
-        self.conv3_5 = nn.Sequential(
-            nn.Conv2d(in_channels=self.conv3_4_num_channels,
-                      out_channels=self.conv3_5_num_channels,
+        self.conv5_2_num_channels = 8
+        self.conv5_2 = nn.Sequential(
+            nn.Conv2d(in_channels=self.conv5_1_num_channels,
+                      out_channels=self.conv5_2_num_channels,
                       kernel_size=5,
                       stride=1,
                       padding=2),
@@ -139,7 +139,7 @@ class PolicyNetwork(nn.Module):
 
         self.total_channels = self.conv3_1_num_channels + \
             self.conv3_2_num_channels + self.conv3_3_num_channels + \
-            self.conv3_4_num_channels + self.conv3_5_num_channels
+            self.conv5_1_num_channels + self.conv5_2_num_channels
         self.kernel3 = torch.rand(
             self.total_channels, requires_grad=True).to(device)
         self.bias3 = torch.tensor(0.5, requires_grad=True).to(device)
@@ -174,10 +174,10 @@ class PolicyNetwork(nn.Module):
         h3_2 = self.conv3_2(h3_1)
         h3_3 = self.conv3_3(h3_2)
 
-        h3_4 = self.conv3_4(x)
-        h3_5 = self.conv3_5(h3_4)
+        h5_1 = self.conv5_1(x)
+        h5_2 = self.conv5_2(h5_1)
 
-        x = torch.cat([h3_1, h3_2, h3_3, h3_4, h3_5], dim=1)
+        x = torch.cat([h3_1, h3_2, h3_3, h5_1, h5_2], dim=1)
         x = x.view((-1, self.total_channels, BOARD_SIZE ** 2))
         x = torch.transpose(x, 1, 2)
         x = torch.sum(x * self.kernel3, axis=-1) + self.bias3
@@ -209,14 +209,15 @@ class WuziGo:
         self.policy_network = PolicyNetwork()
         self.policy_network.to(device)
         self.reset()
-        self.PATH = 'weights/w5.pt'
+        self.PATH = 'weights/w3.pt'
 
     def save(self, epoch):
         torch.save(self.policy_network.state_dict(), f'weights/w_{epoch}.pt')
 
     def load(self):
         try:
-            self.policy_network.load_state_dict(torch.load(self.PATH))
+            self.policy_network.load_state_dict(torch.load(
+                self.PATH, map_location={'cuda:0': 'cpu'}))
         except FileNotFoundError:
             print('unable to load model')
 
