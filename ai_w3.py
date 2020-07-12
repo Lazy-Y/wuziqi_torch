@@ -218,6 +218,7 @@ class WuziGo:
         try:
             self.policy_network.load_state_dict(torch.load(
                 self.PATH, map_location={'cuda:0': 'cpu'}))
+            print('load file successfully')
         except FileNotFoundError:
             print('unable to load model')
 

@@ -1,18 +1,18 @@
 from gomoku import GomokuEnv
 from time import sleep
 from datetime import datetime
-from ai_w3 import BOARD_SIZE, WuziGo, coord_to_action
+from ai import BOARD_SIZE, WuziGo, coord_to_action
 import numpy as np
 player_color = 'black'
 
 # default 'beginner' level opponent policy 'random'
 debug = False
-train = True
+train = False
 env = GomokuEnv(player_color=player_color,
                 opponent='beginner', board_size=BOARD_SIZE)
-ai = WuziGo()
+ai = WuziGo('player26')
 ai.load()
-EPOCHS = 30
+EPOCHS = 1
 STEPS = 100
 for epoch in range(EPOCHS):
     loss_array = []
@@ -25,6 +25,9 @@ for epoch in range(EPOCHS):
         while True:
             action = ai.play(observation)
             observation, reward, done, info = env.step(action)
+            if debug:
+                env.render()
+                sleep(1)
             observation = np.where(observation == 2, -1, observation)
             coord = env.state.board.last_coord
             if reward == 1 or done:
@@ -33,8 +36,6 @@ for epoch in range(EPOCHS):
             ai.observe(action, observation)
             if done:
                 break
-        if debug:
-            env.render()
         if train:
             loss = ai.reward(reward)
             loss_array.append(loss)
@@ -50,4 +51,5 @@ for epoch in range(EPOCHS):
     print('epoch:', epoch, 'takes', end - start,)
     print('mean loss', np.mean(
         loss_array), 'win:', win, 'drar:', draw, 'lose:', lose)
-    ai.save(epoch)
+    if train:
+        ai.save(epoch)

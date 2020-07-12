@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import snoop
 import torch
@@ -12,8 +13,8 @@ snoop.install(enabled=False)
 
 BOARD_SIZE = 11
 ACTIONS = list(range(BOARD_SIZE ** 2))
-
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+cuda_available = torch.cuda.is_available()
+device = torch.device("cuda:0" if cuda_available else "cpu")
 
 board_ones = torch.ones((BOARD_SIZE, BOARD_SIZE)).to(device)
 board_zeros = torch.zeros((BOARD_SIZE, BOARD_SIZE)).to(device)
@@ -83,6 +84,8 @@ def expand_board(action, single_board_np):
         final_action_coord_array.append(action_coord)
     action_array = [coord_to_action(*coord)
                     for coord in final_action_coord_array]
+    action_array += action_array
+    board_tensor_array += [-board_tensor for board_tensor in board_tensor_array]
     return torch.tensor(action_array).to(device), torch.stack(board_tensor_array)
 
 
@@ -188,7 +191,7 @@ class PolicyNetwork(nn.Module):
         return x
 
     @snoop
-    def train(self, action, single_board_np):
+    def train(self, action, single_board_np, rate=1):
         """
         Args:
             action (int): [0, BS * BS)
@@ -196,7 +199,7 @@ class PolicyNetwork(nn.Module):
         """
         action_tensor, board_tensor = expand_board(action, single_board_np)
         output_tensor = self(board_tensor)
-        loss = self.criterion(output_tensor, action_tensor)
+        loss = self.criterion(output_tensor, action_tensor) * rate
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
@@ -205,27 +208,45 @@ class PolicyNetwork(nn.Module):
 
 class WuziGo:
 
-    def __init__(self):
+    def __init__(self, name='default'):
         self.policy_network = PolicyNetwork()
         self.policy_network.to(device)
         self.reset()
-        self.PATH = 'weights/w5.pt'
+        self.name = name
+        self.PATH = f'weights/trainers/{self.name}.pt'
 
-    def save(self, epoch):
-        torch.save(self.policy_network.state_dict(), f'weights/w_{epoch}.pt')
+    def save(self):
+        try:
+            dir_path = f'weights/trainers'
+            os.makedirs(dir_path)
+        except OSError as e:
+            pass
+        torch.save(self.policy_network.state_dict(),
+                   f'{dir_path}/{self.name}.pt')
 
     def load(self):
         try:
-            self.policy_network.load_state_dict(torch.load(self.PATH))
+            if cuda_available:
+                map_location = {'cpu': 'cuda:0'}
+            else:
+                map_location = {'cuda:0': 'cpu'}
+            self.policy_network.load_state_dict(
+                torch.load(self.PATH, map_location=map_location))
+            print('load model successfully')
         except FileNotFoundError:
             print('unable to load model')
+
+    def copy(self, ai):
+        self.name = ai.name
+        self.policy_network.load_state_dict(ai.policy_network.state_dict())
 
     def reset(self):
         self.policy_network.reset()
         self.observations = []  # stores pairs (action, single_board_np)
 
     def play(self, single_board_np):
-        # single_board_np = single_board_np.to(device)
+        single_board_np = np.array(single_board_np)
+        single_board_np = np.where(single_board_np == 2, -1, single_board_np)
         if len(self.observations) % 2:
             single_board_np = -single_board_np
         board = np.reshape(single_board_np, (1, BOARD_SIZE, BOARD_SIZE))
@@ -235,11 +256,13 @@ class WuziGo:
         return action
 
     def observe(self, action, single_board_np):
-        if len(self.observations) % 2:
-            single_board_np = -single_board_np
+        single_board_np = np.array(single_board_np)
+        single_board_np = np.where(single_board_np == 2, -1, single_board_np)
+        # if len(self.observations) % 2:
+        #     single_board_np = -single_board_np
         self.observations.append((action, single_board_np))
 
-    def reward(self, reward):
+    def reward(self, reward, decay=0.8):
         """
         Args:
             reward (int): -1, 0, 1
@@ -247,9 +270,13 @@ class WuziGo:
         if reward == 0:
             return
         loss_array = []
+        rate = 1.
         for action, single_board_np in self.observations[::-2]:
-            loss = self.policy_network.train(action, single_board_np)
+            loss = self.policy_network.train(action, single_board_np, rate)
             loss_array.append(loss.detach().cpu().numpy())
+            rate *= decay
+            if rate < 0.1:
+                break
         self.reset()
         return np.mean(loss_array)
 

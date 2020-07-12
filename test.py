@@ -1,9 +1,7 @@
 import torch
 
-b = torch.tensor([list(range(4)) for i in range(3)])
-print(b.shape)
-b = b.view((-1, 3, 2, 2))
-print(b)
+for i in range(5, 2):
+    print(i)
 # board = torch.reshape(b, (1, 3, 4))
 # board = torch.transpose(board, 1, 2)
 # print(board)

@@ -9,7 +9,7 @@ player_color = 'black'
 debug = False
 train = True
 env = GomokuEnv(player_color=player_color,
-                opponent='medium', board_size=BOARD_SIZE)
+                opponent='beginner', board_size=BOARD_SIZE)
 ai = WuziGo()
 ai.load()
 
@@ -25,5 +25,8 @@ while True:
         break
     action = coord_to_action(*coord)
     ai.observe(action, observation)
+    env.render()
+    sleep(1)
     if done:
         break
+env.render()

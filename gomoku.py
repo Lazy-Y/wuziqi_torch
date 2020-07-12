@@ -178,7 +178,8 @@ class GomokuEnv(gym.Env):
         Raise:
             Illegal Move action, basically the position on board is not empty
         '''
-        assert self.state.color == self.player_color  # it's the player's turn
+        if self.opponent is str:
+            assert self.state.color == self.player_color  # it's the player's turn
 
         # If already terminal, then don't do anything
         if self.done:
@@ -191,16 +192,17 @@ class GomokuEnv(gym.Env):
         # remove current action from action_space
         self.action_space.remove(action)
 
-        # Opponent play
-        if not self.state.board.is_terminal():
-            self.state, opponent_action = self._exec_opponent_play(
-                self.state, prev_state, action)
-            self.moves.append(self.state.board.last_coord)
-            # remove opponent action from action_space
-            self.action_space.remove(opponent_action)
-            # After opponent play, we should be back to the original color
-            assert self.state.color == self.player_color
-        # Reward: if nonterminal, there is no 5 in a row, then the reward is 0
+        if self.opponent is str:
+            # Opponent play
+            if not self.state.board.is_terminal():
+                self.state, opponent_action = self._exec_opponent_play(
+                    self.state, prev_state, action)
+                self.moves.append(self.state.board.last_coord)
+                # remove opponent action from action_space
+                self.action_space.remove(opponent_action)
+                # After opponent play, we should be back to the original color
+                assert self.state.color == self.player_color
+                # Reward: if nonterminal, there is no 5 in a row, then the reward is 0
         if not self.state.board.is_terminal():
             self.done = False
             return self.state.board.encode(), 0., False, {'state': self.state}
@@ -245,9 +247,6 @@ class GomokuEnv(gym.Env):
             self.opponent_policy = make_medium_policy()
         elif self.opponent == 'expert':
             self.opponent_policy = make_expert_policy()
-        else:
-            raise error.Error(
-                'Unrecognized opponent policy {}'.format(self.opponent))
 
 
 class Board(object):
